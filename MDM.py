@@ -4,9 +4,10 @@ from scipy.linalg import eigvalsh
 from numpy.core.numerictypes import typecodes
 
 # Functions borrowed from alexandrebarachant/pyRiemann github repository
+# https://github.com/alexandrebarachant/pyRiemann
 
 
-def _matrix_operator(Ci, operator):
+def matrix_operator(Ci, operator):
     """matrix equivalent of an operator."""
     if Ci.dtype.char in typecodes["AllFloat"] and not np.isfinite(Ci).all():
         raise ValueError(
@@ -19,23 +20,23 @@ def _matrix_operator(Ci, operator):
 
 
 def logm(Ci):
-    return _matrix_operator(Ci, np.log)
+    return matrix_operator(Ci, np.log)
 
 
 def expm(Ci):
-    return _matrix_operator(Ci, np.exp)
+    return matrix_operator(Ci, np.exp)
 
 
 def sqrtm(Ci):
-    return _matrix_operator(Ci, np.sqrt)
+    return matrix_operator(Ci, np.sqrt)
 
 
 def invsqrtm(Ci):
     isqrt = lambda x: 1.0 / np.sqrt(x)
-    return _matrix_operator(Ci, isqrt)
+    return matrix_operator(Ci, isqrt)
 
 
-def _get_sample_weight(sample_weight, data):
+def get_sample_weight(sample_weight, data):
     if sample_weight is None:
         sample_weight = np.ones(data.shape[0])
     if len(sample_weight) != data.shape[0]:
@@ -45,7 +46,7 @@ def _get_sample_weight(sample_weight, data):
 
 
 def mean_riemann(covmats, tol=10e-9, maxiter=50, init=None, sample_weight=None):
-    sample_weight = _get_sample_weight(sample_weight, covmats)
+    sample_weight = get_sample_weight(sample_weight, covmats)
     Nt, Ne, Ne = covmats.shape
     if init is None:
         C = np.mean(covmats, axis=0)
@@ -103,31 +104,33 @@ class Base(object):
         self.__number_of_gestures = arr.shape[0]
         self.__repetitions = arr.shape[1]
         self.__ch = arr.shape[2]
-        self.__SPDmatrices = np.zeros((self.__number_of_gestures, self.__ch, self.__ch))
+        self.__SPD_matrices = np.zeros(
+            (self.__number_of_gestures, self.__ch, self.__ch)
+        )
 
     #   matrix with matrices classified (one gesture - one 2 dimensional matrix)
     def Make_SPDBase(self):
-        CorrPackage = np.zeros(
+        corr_package = np.zeros(
             (self.__number_of_gestures, self.__repetitions, self.__ch, self.__ch)
         )
         #       matrix where correlation coefficient matrices of each gesture repetition
         #       will be placed.
         for index in np.ndindex(self.__number_of_gestures, self.__repetitions):
             # loop for computing correlation coefficient matrices
-            CorrPackage[index[0], index[1], :, :] = np.corrcoef(
+            corr_package[index[0], index[1], :, :] = np.corrcoef(
                 self.__gestures[index[0], index[1], :, :]
             )
         for gesture in range(self.__number_of_gestures):
             # loop for computing mean distances for matrices describing one gesture
             mean = mean_riemann(
-                CorrPackage[gesture, :, :, :],
+                corr_package[gesture, :, :, :],
                 tol=1e-08,
                 maxiter=50,
                 init=None,
                 sample_weight=None,
             )
-            self.__SPDmatrices[gesture, :, :] = mean[:, :]
-        return self.__SPDmatrices
+            self.__SPD_matrices[gesture, :, :] = mean[:, :]
+        return self.__SPD_matrices
 
     def __str__(self):
         print("number of gestures in base: " + str(self.__number_of_gestures))
@@ -137,7 +140,7 @@ class Base(object):
 
     def __getitem__(self, n):
         try:
-            return self.__SPDmatrices[n, :, :]
+            return self.__SPD_matrices[n, :, :]
         except IndexError:
             return (
                 "please choose index from range [0,"
@@ -160,7 +163,7 @@ class Base(object):
         base_new = np.zeros(
             (
                 self.__number_of_gestures,
-                self.__repetitions + other.__ilepow,
+                self.__repetitions + other.__repetitions,
                 self.__ch,
                 self.__gestures.shape[3],
             )
@@ -175,17 +178,17 @@ class MDM(object):
     #   Accepts base made with class above and 2D matrix of gesture signals
     #   Returns index of gesture classified based on riemann geometry
     def __init__(self, base, gesture):  # base - 3d , gesture = 2D
-        self.__Base = base
+        self.__base = base
         self.__gesture = gesture
         self.__number_of_gestures = base.shape[0]
         self.__distances = {}
 
     def classify(self):
         # computes distances between online gesture and each gesture from base
-        corrGesture = np.corrcoef(self.__gesture)
+        corr_gesture = np.corrcoef(self.__gesture)
         for gesture in range(self.__number_of_gestures):
             self.__distances[gesture] = distance_riemann(
-                self.__Base[gesture, :, :], corrGesture
+                self.__base[gesture, :, :], corr_gesture
             )
         return self.__distances
 
@@ -203,9 +206,13 @@ class MDM(object):
         return self.__number_of_gestures
 
     def __str__(self):
-        print("number of gesture     distance to gesture online")
         for gesture, distance in self.__distances.items():
-            print(str(gesture) + "                 " + str(distance))
+            print(
+                "number of gesture: ",
+                str(gesture),
+                "         distance: ",
+                str(distance),
+            )
         return "  "
 
     def __repr__(self):
